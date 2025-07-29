@@ -58,7 +58,7 @@ claude mcp list
 
 ## About This Project
 
-This application was created following the tutorial **"Complete App Lifecycle Development: Claude Code & MCP Automation"** by Rithish Ramesh (July 25, 2025). The tutorial demonstrates how to harness the power of AI agents through the Claude Code CLI to automate the entire application development lifecycle, from initial project setup to production deployment.
+This application was created following the tutorial **"Complete App Lifecycle Development: Claude Code & MCP Automation"** by Rithish Ramesh. The tutorial demonstrates how to harness the power of AI agents through the Claude Code CLI to automate the entire application development lifecycle, from initial project setup to production deployment.
 
 The tutorial showcases maximum agent autonomy using Claude Code with MCP (Model Context Protocol) servers for GitHub, DigitalOcean App Platform, and DigitalOcean PostgreSQL. This enables an AI assistant to understand complex instructions and interact with real-world services to build and deploy production-ready applications using simple natural language prompts.
 
