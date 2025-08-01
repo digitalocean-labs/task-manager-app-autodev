@@ -46,10 +46,6 @@ claude mcp add digitalocean-app-mcp \
   -e DIGITALOCEAN_API_TOKEN=YOUR_DO_APP_PAT \
   -- npx @digitalocean/mcp
 
-# DigitalOcean PostgreSQL MCP Server (optional)
-claude mcp add digitalocean-postgres-mcp \
-  -e DIGITALOCEAN_API_TOKEN=YOUR_DO_DB_PAT \
-  -- npx @digitalocean/mcp
 
 # Verify setup
 claude mcp list
