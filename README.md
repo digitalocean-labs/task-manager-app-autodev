@@ -38,9 +38,8 @@ In today's fast-paced development landscape, automating every possible step is k
 **Add MCP Servers:**
 ```bash
 # GitHub MCP Server
-claude mcp add github-mcp \
-  -e GITHUB_ACCESS_TOKEN=YOUR_GITHUB_PAT \
-  -- npx @agentic-mcps/github
+
+Follow the link for Github MCP Setup here: https://docs.google.com/document/d/1s5qSqiCBi13hDleyWEt1WNoGn5kiUJJGULmGysk9jEs/edit?usp=sharing
 
 # DigitalOcean App Platform MCP Server
 claude mcp add digitalocean-app-mcp \
