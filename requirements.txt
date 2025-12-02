@@ -14,7 +14,7 @@ bcrypt==4.0.1
 redis==5.0.0
 gunicorn==21.2.0
 email-validator==2.0.0
-werkzeug==2.3.7
+werkzeug==3.1.4
 pytest==7.4.2
 pytest-cov==4.1.0
 black==23.7.0
