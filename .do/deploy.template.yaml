@@ -113,8 +113,6 @@ databases:
     production: ${DB_PRODUCTION}
     size: db-s-dev-database
 
-# Redis cache configuration
-
 # Static files (if needed for future enhancements)
 static_sites: []
 
