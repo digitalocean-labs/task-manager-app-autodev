@@ -9,9 +9,9 @@ on:
   workflow_dispatch:
     inputs:
       force_deploy:
-        description: 'Force deployment even if tests fail'
+        description: "Force deployment even if tests fail"
         required: false
-        default: 'false'
+        default: "false"
         type: boolean
 
 env:
@@ -23,18 +23,18 @@ jobs:
   test-and-build:
     name: Test and Build
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      
+
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.11'
-      
+          python-version: "3.11"
+
       - name: Cache Dependencies
         uses: actions/cache@v3
         with:
@@ -42,25 +42,25 @@ jobs:
           key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
           restore-keys: |
             ${{ runner.os }}-pip-
-      
+
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install pytest-cov flake8 black
-      
+
       - name: Run Linting
         run: |
           echo "Running code quality checks..."
           flake8 app/ --count --statistics --max-line-length=88 --exclude=migrations
           echo "✅ Linting completed"
-      
+
       - name: Check Code Formatting
         run: |
           echo "Checking code formatting..."
           black --check app/ --diff
           echo "✅ Code formatting check completed"
-      
+
       - name: Run Security Checks
         run: |
           echo "Running security checks..."
@@ -68,7 +68,7 @@ jobs:
           safety check --json || echo "⚠️ Security vulnerabilities found"
           bandit -r app/ -f json || echo "⚠️ Security issues found"
           echo "✅ Security checks completed"
-      
+
       - name: Run Unit Tests
         run: |
           echo "Running unit tests..."
@@ -78,13 +78,13 @@ jobs:
             echo "⚠️ No tests directory found, skipping tests"
           fi
           echo "✅ Unit tests completed"
-      
+
       - name: Validate App Spec
         run: |
           echo "Validating DigitalOcean App Spec..."
           # Generate staging app spec
           mkdir -p .do/generated
-          
+
           sed \
             -e "s/\${ENVIRONMENT}/staging/g" \
             -e "s/\${BRANCH}/staging/g" \
@@ -99,12 +99,12 @@ jobs:
             -e "s/\${MAIL_PASSWORD}/staging-mail-password/g" \
             -e "s/\${REDIS_PASSWORD}/staging-redis-password/g" \
             .do/deploy.template.yaml > .do/generated/staging-spec.yaml
-          
+
           # Update app name
           sed -i "s/name: task-manager-app-staging/name: ${APP_NAME}/g" .do/generated/staging-spec.yaml
-          
+
           echo "✅ App spec validation completed"
-      
+
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v3
         with:
@@ -121,22 +121,29 @@ jobs:
     environment:
       name: staging
       url: https://task-manager-staging.ondigitalocean.app
-    
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
-      
+
       - name: Download Build Artifacts
         uses: actions/download-artifact@v3
         with:
           name: staging-deployment-artifacts
           path: .do/generated/
-      
+
+      - name: Ensure DO_API_TOKEN is set
+        run: |
+          if [ -z "${{ secrets.DO_API_TOKEN }}" ]; then
+            echo "❌ DO_API_TOKEN secret is not set"
+            exit 1
+          fi
+
       - name: Install doctl
         uses: digitalocean/action-doctl@v2
         with:
           token: ${{ secrets.DO_API_TOKEN }}
-      
+
       - name: Generate Staging App Spec
         run: |
           # Regenerate with actual secrets
@@ -154,10 +161,10 @@ jobs:
             -e "s/\${MAIL_PASSWORD}/${{ secrets.STAGING_MAIL_PASSWORD }}/g" \
             -e "s/\${REDIS_PASSWORD}/${{ secrets.STAGING_REDIS_PASSWORD }}/g" \
             .do/deploy.template.yaml > .do/generated/staging-spec.yaml
-          
+
           # Update app name
           sed -i "s/name: task-manager-app-staging/name: ${APP_NAME}/g" .do/generated/staging-spec.yaml
-      
+
       - name: Check if Staging App Exists
         id: check_app
         run: |
@@ -170,7 +177,7 @@ jobs:
             echo "app_exists=false" >> $GITHUB_OUTPUT
             echo "Staging app does not exist, will create new one"
           fi
-      
+
       - name: Create Staging App
         if: steps.check_app.outputs.app_exists == 'false'
         id: create_app
@@ -179,7 +186,7 @@ jobs:
           APP_ID=$(doctl apps create .do/generated/staging-spec.yaml --format ID --no-header)
           echo "app_id=${APP_ID}" >> $GITHUB_OUTPUT
           echo "✅ Created staging app with ID: ${APP_ID}"
-      
+
       - name: Update Staging App
         if: steps.check_app.outputs.app_exists == 'true'
         run: |
@@ -187,16 +194,16 @@ jobs:
           echo "Updating existing staging app with ID: ${APP_ID}..."
           doctl apps update ${APP_ID} --spec .do/generated/staging-spec.yaml
           echo "✅ Updated staging app"
-      
+
       - name: Wait for Deployment to Complete
         id: deployment
         run: |
           APP_ID=${{ steps.check_app.outputs.app_id || steps.create_app.outputs.app_id }}
           echo "Waiting for deployment to complete for app ID: ${APP_ID}"
-          
+
           DEPLOYMENT_START=$(date +%s)
           TIMEOUT=900  # 15 minutes
-          
+
           while true; do
             CURRENT_TIME=$(date +%s)
             ELAPSED=$((CURRENT_TIME - DEPLOYMENT_START))
@@ -230,24 +237,24 @@ jobs:
             
             sleep 15
           done
-          
+
           # Get final app URL
           APP_URL=$(doctl apps get ${APP_ID} --format LiveURL --no-header)
           echo "app_url=${APP_URL}" >> $GITHUB_OUTPUT
           echo "🌐 Staging app URL: ${APP_URL}"
-      
+
       - name: Perform Health Check
         run: |
           APP_URL="${{ steps.deployment.outputs.app_url }}"
-          
+
           echo "🏥 Performing health check on: ${APP_URL}"
-          
+
           # Wait for app to be fully ready
           sleep 30
-          
+
           # Comprehensive health check
           HEALTH_CHECK_PASSED=false
-          
+
           for i in {1..10}; do
             echo "🔍 Health check attempt ${i}/10..."
             
@@ -272,34 +279,34 @@ jobs:
               sleep 15
             fi
           done
-          
+
           if [ "$HEALTH_CHECK_PASSED" = "false" ]; then
             echo "❌ Health checks failed after 10 attempts"
             exit 1
           fi
-          
+
           echo "✅ All health checks passed!"
-      
+
       - name: Run Smoke Tests
         run: |
           APP_URL="${{ steps.deployment.outputs.app_url }}"
-          
+
           echo "🧪 Running smoke tests against: ${APP_URL}"
-          
+
           # Test API endpoints
           echo "Testing API health endpoint..."
           curl -f "${APP_URL}/health" | jq '.'
-          
+
           echo "Testing WebSocket status endpoint..."
           curl -f "${APP_URL}/websocket/status" | jq '.'
-          
+
           # Test static assets (if available)
           echo "Testing static assets..."
           curl -f -I "${APP_URL}/static/css/style.css" || echo "⚠️ CSS file not found"
           curl -f -I "${APP_URL}/static/js/app.js" || echo "⚠️ JS file not found"
-          
+
           echo "✅ Smoke tests completed"
-      
+
       - name: Notify Deployment Status
         if: always()
         uses: actions/github-script@v7
@@ -309,24 +316,24 @@ jobs:
             const appUrl = '${{ steps.deployment.outputs.app_url }}';
             const commitSha = '${{ github.sha }}';
             const commitMessage = `${{ github.event.head_commit.message }}`.split('\n')[0];
-            
+
             const title = success ? '🚀 Staging Deployment Successful' : '❌ Staging Deployment Failed';
             const color = success ? 'green' : 'red';
             const emoji = success ? '✅' : '❌';
-            
+
             const body = `## ${title}
-            
+
             **Environment:** Staging
             **Status:** ${success ? 'Success' : 'Failed'}
             **URL:** ${success ? appUrl : 'N/A'}
             **Commit:** \`${commitSha.substring(0, 7)}\`
             **Message:** ${commitMessage}
-            
+
             ### Deployment Details
             - **Branch:** staging
             - **Workflow:** [Staging Deploy](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
             - **Timestamp:** ${new Date().toISOString()}
-            
+
             ${success ? `
             ### 🎯 Next Steps
             - Test the staging environment thoroughly
@@ -340,10 +347,10 @@ jobs:
             - Verify environment variables and secrets
             - Check database connectivity and migrations
             `}
-            
+
             ---
             *Deployed by GitHub Actions*`;
-            
+
             // Create an issue for failed deployments
             if (!success) {
               await github.rest.issues.create({
@@ -360,13 +367,13 @@ jobs:
     runs-on: ubuntu-latest
     needs: deploy-staging
     if: success()
-    
+
     steps:
       - name: Update Deployment Badge
         run: |
           echo "Updating deployment status badge..."
           # This could update a status badge or external monitoring system
-          
+
       - name: Notify Team
         run: |
           echo "🎉 Staging deployment completed successfully!"
