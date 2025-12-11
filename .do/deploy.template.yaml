@@ -56,7 +56,7 @@ services:
         value: ${JWT_SECRET_KEY}
         type: SECRET
       - key: REDIS_URL
-        value: ${redis.REDIS_URL}
+        value: ${REDIS_URL}
       - key: ENVIRONMENT
         value: ${ENVIRONMENT}
       - key: PORT
@@ -92,17 +92,6 @@ services:
         - Authorization
         - X-Requested-With
       allow_credentials: true
-
-# Database configuration
-databases:
-  - name: db
-    engine: PG
-    version: "14"
-    production: ${DB_PRODUCTION}
-    size: db-s-dev-database
-
-# Redis cache configuration
-services:
   - name: redis
     image:
       registry_type: DOCKER_HUB
@@ -115,6 +104,16 @@ services:
       - key: REDIS_PASSWORD
         value: ${REDIS_PASSWORD}
         type: SECRET
+
+# Database configuration
+databases:
+  - name: db
+    engine: PG
+    version: "14"
+    production: ${DB_PRODUCTION}
+    size: db-s-dev-database
+
+# Redis cache configuration
 
 # Static files (if needed for future enhancements)
 static_sites: []
