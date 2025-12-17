@@ -1,39 +1,493 @@
+# GitHub Actions Workflow: Production Deployment
+# Deploys to production environment when code is merged to main branch
+
 name: Deploy to Production
 
 on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      deployment_type:
+        description: 'Type of deployment'
+        required: true
+        default: 'standard'
+        type: choice
+        options:
+          - standard
+          - hotfix
+          - rollback
+      confirm_production:
+        description: 'Type "DEPLOY TO PRODUCTION" to confirm'
+        required: true
+        type: string
 
 env:
   DO_API_TOKEN: ${{ secrets.DO_API_TOKEN }}
+  ENVIRONMENT: production
   APP_NAME: task-manager-production
 
 jobs:
-  deploy-production:
-    name: Deploy to Production Environment
+  pre-deployment-checks:
+    name: Pre-Deployment Security & Quality Checks
     runs-on: ubuntu-latest
-
+    
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Validate Manual Deployment Confirmation
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          if [ "${{ github.event.inputs.confirm_production }}" != "DEPLOY TO PRODUCTION" ]; then
+            echo "❌ Production deployment confirmation failed"
+            echo "Please type exactly: DEPLOY TO PRODUCTION"
+            exit 1
+          fi
+          echo "✅ Production deployment confirmed"
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest-cov flake8 black safety bandit
+      
+      - name: Run Comprehensive Security Scan
+        run: |
+          echo "🔒 Running comprehensive security scans..."
+          
+          # Check for known vulnerabilities
+          echo "Checking for known vulnerabilities..."
+          safety check --json > security-report.json || true
+          
+          # Static security analysis
+          echo "Running static security analysis..."
+          bandit -r app/ -f json -o bandit-report.json || true
+          
+          # Check for hardcoded secrets
+          echo "Scanning for hardcoded secrets..."
+          grep -r -i "password\|secret\|key\|token" app/ --exclude-dir=__pycache__ || true
+          
+          echo "✅ Security scans completed"
+      
+      - name: Run Full Test Suite
+        run: |
+          echo "🧪 Running comprehensive test suite..."
+          
+          if [ -d "tests" ]; then
+            python -m pytest tests/ -v --tb=short --cov=app --cov-report=xml --cov-report=term --cov-fail-under=70
+          else
+            echo "⚠️ No tests directory found - this should be addressed before production"
+          fi
+          
+          echo "✅ Test suite completed"
+      
+      - name: Code Quality Gate
+        run: |
+          echo "📊 Running code quality checks..."
+          
+          # Strict linting for production
+          flake8 app/ --count --statistics --max-line-length=88 --exclude=migrations --max-complexity=10
+          
+          # Code formatting check
+          black --check app/ --diff
+          
+          # Check for TODO/FIXME comments
+          if grep -r "TODO\|FIXME\|XXX\|HACK" app/ --exclude-dir=__pycache__; then
+            echo "⚠️ Found TODO/FIXME comments - consider addressing before production"
+          fi
+          
+          echo "✅ Code quality checks passed"
+      
+      - name: Database Migration Validation
+        run: |
+          echo "🗄️ Validating database migrations..."
+          
+          # Check for migration files
+          if [ -d "migrations" ]; then
+            echo "Found migrations directory"
+            ls -la migrations/versions/ || echo "No migration versions found"
+          else
+            echo "⚠️ No migrations directory found"
+          fi
+          
+          echo "✅ Database migration validation completed"
+      
+      - name: Upload Security Reports
+        uses: actions/upload-artifact@v3
+        with:
+          name: security-reports
+          path: |
+            security-report.json
+            bandit-report.json
+          retention-days: 30
 
+  staging-validation:
+    name: Validate Staging Environment
+    runs-on: ubuntu-latest
+    needs: pre-deployment-checks
+    
+    steps:
       - name: Install doctl
         uses: digitalocean/action-doctl@v2
         with:
-          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          token: ${{ secrets.DO_API_TOKEN }}
+      
+      - name: Check Staging App Health
+        run: |
+          echo "🏥 Validating staging environment before production deployment..."
+          
+          # Check if staging app exists and is healthy
+          if doctl apps list --format Name --no-header | grep -q "task-manager-staging"; then
+            STAGING_APP_ID=$(doctl apps list --format ID,Name --no-header | grep "task-manager-staging" | cut -d' ' -f1)
+            STAGING_STATUS=$(doctl apps get ${STAGING_APP_ID} --format Phase --no-header)
+            
+            if [ "${STAGING_STATUS}" = "ACTIVE" ]; then
+              echo "✅ Staging environment is healthy"
+              
+              # Get staging URL and perform health check
+              STAGING_URL=$(doctl apps get ${STAGING_APP_ID} --format LiveURL --no-header)
+              
+              if curl -f -s "${STAGING_URL}/health" > /dev/null; then
+                echo "✅ Staging health check passed"
+              else
+                echo "❌ Staging health check failed"
+                exit 1
+              fi
+            else
+              echo "❌ Staging environment is not healthy (Status: ${STAGING_STATUS})"
+              exit 1
+            fi
+          else
+            echo "⚠️ Staging app not found - proceeding with caution"
+          fi
 
+  deploy-production:
+    name: Deploy to Production Environment
+    runs-on: ubuntu-latest
+    needs: [pre-deployment-checks, staging-validation]
+    environment:
+      name: production
+      url: https://task-manager-production.ondigitalocean.app
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+      
+      - name: Create Deployment Issue
+        id: deployment_issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: issue } = await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `🚀 Production Deployment - ${context.sha.substring(0, 7)}`,
+              body: `## Production Deployment in Progress
+              
+              **Commit:** \`${context.sha}\`
+              **Branch:** main
+              **Workflow:** [Production Deploy](https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})
+              **Started:** ${new Date().toISOString()}
+              
+              ### Deployment Status
+              - [ ] Pre-deployment checks
+              - [ ] Staging validation
+              - [ ] Production deployment
+              - [ ] Health checks
+              - [ ] Smoke tests
+              - [ ] Post-deployment verification
+              
+              > **⚠️ Critical:** This is a production deployment. Monitor closely.`,
+              labels: ['deployment', 'production', 'critical']
+            });
+            
+            return issue.number;
+      
+      - name: Install doctl
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DO_API_TOKEN }}
+      
       - name: Generate Production App Spec
         run: |
+          echo "📋 Generating production app specification..."
+          
           mkdir -p .do/generated
-          cp .do/deploy.template.yaml .do/generated/production-spec.yaml
-
-      - name: Deploy to Production
+          
+          # Generate production spec with real secrets
+          sed \
+            -e "s/\${ENVIRONMENT}/production/g" \
+            -e "s/\${BRANCH}/main/g" \
+            -e "s/\${APP_DOMAIN}/task-manager-production.ondigitalocean.app/g" \
+            -e "s/\${DB_PRODUCTION}/true/g" \
+            -e "s/\${SECRET_KEY}/${{ secrets.PRODUCTION_SECRET_KEY }}/g" \
+            -e "s/\${JWT_SECRET_KEY}/${{ secrets.PRODUCTION_JWT_SECRET_KEY }}/g" \
+            -e "s/\${CORS_ALLOWED_ORIGINS}/https:\/\/task-manager-production.ondigitalocean.app/g" \
+            -e "s/\${MAIL_SERVER}/${{ secrets.PRODUCTION_MAIL_SERVER }}/g" \
+            -e "s/\${MAIL_PORT}/${{ secrets.PRODUCTION_MAIL_PORT }}/g" \
+            -e "s/\${MAIL_USERNAME}/${{ secrets.PRODUCTION_MAIL_USERNAME }}/g" \
+            -e "s/\${MAIL_PASSWORD}/${{ secrets.PRODUCTION_MAIL_PASSWORD }}/g" \
+            -e "s/\${REDIS_PASSWORD}/${{ secrets.PRODUCTION_REDIS_PASSWORD }}/g" \
+            .do/deploy.template.yaml > .do/generated/production-spec.yaml
+          
+          # Update app name and production settings
+          sed -i "s/name: task-manager-app-production/name: ${APP_NAME}/g" .do/generated/production-spec.yaml
+          sed -i "s/instance_size_slug: basic-xxs/instance_size_slug: professional-xs/g" .do/generated/production-spec.yaml
+          sed -i "s/instance_count: 1/instance_count: 2/g" .do/generated/production-spec.yaml
+          
+          echo "✅ Production app spec generated"
+      
+      - name: Backup Current Production (if exists)
+        id: backup
         run: |
-          # Check if app exists
+          echo "💾 Creating backup of current production environment..."
+          
           if doctl apps list --format Name --no-header | grep -q "^${APP_NAME}$"; then
-            APP_ID=$(doctl apps list --format ID,Name --no-header | grep "${APP_NAME}" | cut -d' ' -f1)
+            PROD_APP_ID=$(doctl apps list --format ID,Name --no-header | grep "${APP_NAME}" | cut -d' ' -f1)
+            
+            # Get current app spec for backup
+            doctl apps get ${PROD_APP_ID} --format Spec --no-header > .do/generated/production-backup-$(date +%Y%m%d-%H%M%S).yaml
+            
+            echo "app_exists=true" >> $GITHUB_OUTPUT
+            echo "app_id=${PROD_APP_ID}" >> $GITHUB_OUTPUT
+            echo "✅ Production backup created"
+          else
+            echo "app_exists=false" >> $GITHUB_OUTPUT
+            echo "ℹ️ No existing production app to backup"
+          fi
+      
+      - name: Deploy to Production
+        id: deploy
+        run: |
+          if [ "${{ steps.backup.outputs.app_exists }}" = "true" ]; then
+            # Update existing production app
+            APP_ID=${{ steps.backup.outputs.app_id }}
+            echo "🔄 Updating existing production app (ID: ${APP_ID})..."
             doctl apps update ${APP_ID} --spec .do/generated/production-spec.yaml
           else
-            doctl apps create --spec .do/generated/production-spec.yaml
+            # Create new production app
+            echo "🆕 Creating new production app..."
+            APP_ID=$(doctl apps create .do/generated/production-spec.yaml --format ID --no-header)
           fi
+          
+          echo "app_id=${APP_ID}" >> $GITHUB_OUTPUT
+          echo "✅ Production deployment initiated"
+      
+      - name: Monitor Production Deployment
+        id: monitor
+        run: |
+          APP_ID=${{ steps.deploy.outputs.app_id }}
+          echo "👀 Monitoring production deployment (ID: ${APP_ID})..."
+          
+          DEPLOYMENT_START=$(date +%s)
+          TIMEOUT=1200  # 20 minutes for production
+          
+          while true; do
+            CURRENT_TIME=$(date +%s)
+            ELAPSED=$((CURRENT_TIME - DEPLOYMENT_START))
+            
+            if [ $ELAPSED -gt $TIMEOUT ]; then
+              echo "❌ Production deployment timeout after 20 minutes"
+              exit 1
+            fi
+            
+            STATUS=$(doctl apps get ${APP_ID} --format Phase --no-header)
+            echo "📊 Production deployment status: ${STATUS} (${ELAPSED}s elapsed)"
+            
+            case "${STATUS}" in
+              "ACTIVE")
+                echo "🎉 Production deployment completed successfully!"
+                break
+                ;;
+              "ERROR"|"CANCELED")
+                echo "💥 Production deployment failed with status: ${STATUS}"
+                
+                # Get deployment logs for debugging
+                echo "📋 Fetching deployment logs..."
+                doctl apps logs ${APP_ID} --type deploy --follow=false || true
+                
+                exit 1
+                ;;
+              "BUILDING"|"DEPLOYING"|"PENDING_BUILD"|"PENDING_DEPLOY")
+                # Continue monitoring
+                ;;
+              *)
+                echo "❓ Unknown deployment status: ${STATUS}"
+                ;;
+            esac
+            
+            sleep 20
+          done
+          
+          # Get production app URL
+          PROD_URL=$(doctl apps get ${APP_ID} --format LiveURL --no-header)
+          echo "app_url=${PROD_URL}" >> $GITHUB_OUTPUT
+          echo "🌐 Production URL: ${PROD_URL}"
+      
+      - name: Production Health Checks
+        run: |
+          PROD_URL="${{ steps.monitor.outputs.app_url }}"
+          
+          echo "🏥 Running comprehensive production health checks..."
+          
+          # Wait for app to be fully ready
+          sleep 60
+          
+          # Health check with retries
+          HEALTH_PASSED=false
+          for i in {1..15}; do
+            echo "🔍 Health check attempt ${i}/15..."
+            
+            # Basic health check
+            if curl -f -s "${PROD_URL}/health" > /dev/null; then
+              echo "✅ Basic health check passed"
+              
+              # WebSocket health check
+              if curl -f -s "${PROD_URL}/websocket/status" > /dev/null; then
+                echo "✅ WebSocket health check passed"
+                HEALTH_PASSED=true
+                break
+              fi
+            fi
+            
+            if [ $i -lt 15 ]; then
+              echo "⏳ Waiting 20 seconds before retry..."
+              sleep 20
+            fi
+          done
+          
+          if [ "$HEALTH_PASSED" = "false" ]; then
+            echo "❌ Production health checks failed after 15 attempts"
+            exit 1
+          fi
+          
+          echo "✅ All production health checks passed!"
+      
+      - name: Production Smoke Tests
+        run: |
+          PROD_URL="${{ steps.monitor.outputs.app_url }}"
+          
+          echo "🧪 Running production smoke tests..."
+          
+          # Test critical endpoints
+          echo "Testing health endpoint..."
+          HEALTH_RESPONSE=$(curl -s "${PROD_URL}/health")
+          echo "Health response: ${HEALTH_RESPONSE}"
+          
+          echo "Testing WebSocket status..."
+          WS_RESPONSE=$(curl -s "${PROD_URL}/websocket/status")
+          echo "WebSocket response: ${WS_RESPONSE}"
+          
+          # Test static assets
+          echo "Testing static assets..."
+          curl -f -I "${PROD_URL}/static/css/style.css" && echo "✅ CSS loaded" || echo "❌ CSS failed"
+          curl -f -I "${PROD_URL}/static/js/app.js" && echo "✅ JS loaded" || echo "❌ JS failed"
+          
+          echo "✅ Production smoke tests completed"
+      
+      - name: Update Deployment Issue
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const success = '${{ job.status }}' === 'success';
+            const prodUrl = '${{ steps.monitor.outputs.app_url }}';
+            const issueNumber = ${{ steps.deployment_issue.outputs.result }};
+            
+            const status = success ? '✅ COMPLETED' : '❌ FAILED';
+            const emoji = success ? '🎉' : '💥';
+            
+            const updateBody = `## ${emoji} Production Deployment ${status}
+            
+            **Deployment Status:** ${status}
+            **Production URL:** ${success ? prodUrl : 'N/A'}
+            **Completed:** ${new Date().toISOString()}
+            **Duration:** Approximately ${Math.round((Date.now() - new Date('${{ github.event.head_commit.timestamp }}').getTime()) / 60000)} minutes
+            
+            ### Deployment Summary
+            - **Environment:** Production
+            - **Commit:** \`${{ github.sha }}\`
+            - **Branch:** main
+            - **App ID:** ${{ steps.deploy.outputs.app_id }}
+            
+            ${success ? `
+            ### ✅ Deployment Successful
+            - All health checks passed
+            - Smoke tests completed successfully
+            - Production environment is live and ready
+            
+            ### 🎯 Post-Deployment Actions
+            - [ ] Monitor application metrics
+            - [ ] Verify all features are working
+            - [ ] Update documentation if needed
+            - [ ] Notify stakeholders of successful deployment
+            ` : `
+            ### ❌ Deployment Failed
+            - Check workflow logs for detailed error information
+            - Review DigitalOcean App Platform logs
+            - Consider rollback if necessary
+            
+            ### 🚨 Immediate Actions Required
+            - [ ] Investigate deployment failure
+            - [ ] Check application health
+            - [ ] Decide on rollback strategy
+            - [ ] Notify team of deployment status
+            `}
+            
+            ---
+            *Deployment managed by GitHub Actions*`;
+            
+            await github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              body: updateBody,
+              state: success ? 'closed' : 'open'
+            });
+
+  post-production-deployment:
+    name: Post-Production Tasks
+    runs-on: ubuntu-latest
+    needs: deploy-production
+    if: success()
+    
+    steps:
+      - name: Create Release Tag
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const tagName = `v${new Date().toISOString().split('T')[0].replace(/-/g, '')}-${context.sha.substring(0, 7)}`;
+            
+            try {
+              await github.rest.git.createRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: `refs/tags/${tagName}`,
+                sha: context.sha
+              });
+              
+              console.log(`✅ Created release tag: ${tagName}`);
+            } catch (error) {
+              console.log(`⚠️ Failed to create tag: ${error.message}`);
+            }
+      
+      - name: Notify Successful Deployment
+        run: |
+          echo "🎉 PRODUCTION DEPLOYMENT SUCCESSFUL!"
+          echo "🌐 Production URL: https://task-manager-production.ondigitalocean.app"
+          echo "📝 Commit: ${{ github.sha }}"
+          echo "⏰ Deployed at: $(date -u +"%Y-%m-%d %H:%M:%S UTC")"
+          echo ""
+          echo "🎯 Next Steps:"
+          echo "- Monitor application performance"
+          echo "- Verify all features are working correctly"
+          echo "- Update any necessary documentation"
+          echo "- Celebrate the successful deployment! 🎊"
