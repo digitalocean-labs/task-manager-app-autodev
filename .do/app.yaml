@@ -1,5 +1,5 @@
 
-  name: task-manager-app-56
+  name: task-manager-app-226
 
   databases:
     - engine: PG
@@ -22,8 +22,6 @@
       source_dir: /
       instance_count: 1
       instance_size_slug: basic-xxs
-      http_port: 8080
-
       git:
         repo_clone_url: https://github.com/digitalocean-labs/task-manager-app-autodev.git
         branch: main
@@ -37,10 +35,10 @@
           --worker-class eventlet \
           --workers 1 \
           --bind 0.0.0.0:$PORT \
-          app_socketio:app
-
+            app_socketio:app
+      http_port: 8080    
       health_check:
-        http_path: /health
+        http_path: /api/health
 
       envs:
         - key: FLASK_APP
@@ -48,9 +46,6 @@
 
         - key: FLASK_ENV
           value: production
-
-        - key: PORT
-          value: "8080"
 
         - key: DATABASE_URL
           scope: RUN_AND_BUILD_TIME
