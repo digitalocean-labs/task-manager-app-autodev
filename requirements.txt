@@ -21,4 +21,4 @@ black==23.7.0
 flake8==6.0.0
 PyYAML==6.0.1
 requests
-eventlet==0.33.3
+eventlet==0.40.3
