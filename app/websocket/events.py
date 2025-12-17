@@ -10,7 +10,7 @@ from app import socketio, db
 from app.models.user import User
 from app.models.task import Task
 from app.models.project import Project
-from app.models.comment import Comment
+from app.models.comment import TaskComment
 from app.models.project_member import ProjectMember
 import logging
 from datetime import datetime
@@ -376,7 +376,7 @@ def on_comment_added(data):
         return
     
     # Get comment and task details
-    comment = Comment.query.get(comment_id)
+    comment = TaskComment.query.get(comment_id)
     task = Task.query.get(task_id)
     
     if not comment or not task:

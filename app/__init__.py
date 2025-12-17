@@ -14,7 +14,10 @@ __version__ = '1.0.0'
 
 db = SQLAlchemy()
 migrate = Migrate()
-socketio = SocketIO()
+socketio = SocketIO(
+    cors_allowed_origins="*",
+    async_mode="gevent"
+)
 jwt = JWTManager()
 
 
@@ -25,7 +28,7 @@ def create_app(config_name='default'):
     # Initialize extensions
     db.init_app(app)
     migrate.init_app(app, db)
-    socketio.init_app(app, cors_allowed_origins="*", async_mode='threading')
+    socketio.init_app(app)
     jwt.init_app(app)
     CORS(app)
     
