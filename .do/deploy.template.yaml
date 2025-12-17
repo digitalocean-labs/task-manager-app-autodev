@@ -112,7 +112,3 @@ spec:
         tag: "7-alpine"
       instance_count: 1
       instance_size_slug: basic-xxs
-
-  alerts:
-    - rule: DEPLOYMENT_FAILED
-    - rule: DEPLOYMENT_LIVE
