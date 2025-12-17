@@ -1,96 +1,167 @@
+# DigitalOcean App Platform Specification
+# Task Manager Application Deployment Configuration
 
-  name: task-manager-app-autodev-37
+name: task-manager-app-${ENVIRONMENT}
+region: nyc
 
-  databases:
-    - engine: PG
-      name: db
-      version: "14"
-      production: false
-      size: db-s-dev-database
+services:
+  - name: web
+    source_dir: /
+    github:
+      repo: RithishRamesh-dev/task-manager-app-autodev
+      branch: ${BRANCH}
+      deploy_on_push: true
+    
+    # Build configuration
+    build_command: |
+      pip install --upgrade pip
+      pip install -r requirements.txt
+      # Run database migrations
+      flask db upgrade
+    
+    # Runtime configuration
+    run_command: |
+      if [ "$ENVIRONMENT" = "production" ]; then
+        gunicorn --worker-class eventlet -w 1 --bind 0.0.0.0:$PORT app_socketio:app
+      else
+        gunicorn --worker-class eventlet -w 1 --bind 0.0.0.0:$PORT app_socketio:app --log-level debug
+      fi
+    
+    # Service configuration
+    instance_count: 1
+    instance_size_slug: basic-xxs
+    http_port: 8080
+    
+    # Health check configuration
+    health_check:
+      http_path: /health
+      initial_delay_seconds: 30
+      period_seconds: 10
+      timeout_seconds: 5
+      success_threshold: 1
+      failure_threshold: 3
+    
+    # Environment variables
+    envs:
+      - key: FLASK_APP
+        value: app_socketio.py
+      - key: FLASK_ENV
+        value: ${ENVIRONMENT}
+      - key: DATABASE_URL
+        value: ${db.DATABASE_URL}
+      - key: SECRET_KEY
+        value: ${SECRET_KEY}
+        type: SECRET
+      - key: JWT_SECRET_KEY
+        value: ${JWT_SECRET_KEY}
+        type: SECRET
+      - key: REDIS_URL
+        value: ${REDIS_URL}
+      - key: ENVIRONMENT
+        value: ${ENVIRONMENT}
+      - key: PORT
+        value: "8080"
+      - key: CORS_ALLOWED_ORIGINS
+        value: ${CORS_ALLOWED_ORIGINS}
+      - key: MAIL_SERVER
+        value: ${MAIL_SERVER}
+      - key: MAIL_PORT
+        value: ${MAIL_PORT}
+      - key: MAIL_USERNAME
+        value: ${MAIL_USERNAME}
+      - key: MAIL_PASSWORD
+        value: ${MAIL_PASSWORD}
+        type: SECRET
+      - key: MAIL_USE_TLS
+        value: "true"
+    
+    # CORS configuration
+    cors:
+      allow_origins:
+        - exact: https://${APP_DOMAIN}
+        - regex: https://.*\.ondigitalocean\.app
+      allow_methods:
+        - GET
+        - POST
+        - PUT
+        - DELETE
+        - PATCH
+        - OPTIONS
+      allow_headers:
+        - Content-Type
+        - Authorization
+        - X-Requested-With
+      allow_credentials: true
+  - name: redis
+    image:
+      registry_type: DOCKER_HUB
+      repository: redis
+      tag: "7-alpine"
+    instance_count: 1
+    instance_size_slug: basic-xxs
+    
+    envs:
+      - key: REDIS_PASSWORD
+        value: ${REDIS_PASSWORD}
+        type: SECRET
 
-  ingress:
-    rules:
-      - component:
-          name: web
-        match:
-          path:
-            prefix: /
+# Database configuration
+databases:
+  - name: db
+    engine: PG
+    version: "14"
+    production: ${DB_PRODUCTION}
+    size: db-s-dev-database
 
-  jobs:
-    - name: db-migrate
-      environment_slug: python
-      envs:
-        - key: FLASK_APP
-          value: app.py
-        - key: DATABASE_URL
-          scope: RUN_AND_BUILD_TIME
-          value: ${db.DATABASE_URL}
-        - key: SECRET_KEY
-          value: ${SECRET_KEY}
-          type: SECRET
-      git:
-        branch: main
-        repo_clone_url: https://github.com/digitalocean-labs/task-manager-app-autodev.git
-      source_dir: /
-      run_command: flask db upgrade
+# Redis cache configuration
 
-  services:
-    - name: web
-      environment_slug: python
-      git:
-        branch: main
-        repo_clone_url: https://github.com/digitalocean-labs/task-manager-app-autodev.git
-      source_dir: /
-      build_command: |
-        pip install --upgrade pip
-        pip install -r requirements.txt
-      run_command: |
-        gunicorn --worker-class gevent -w 1 --bind 0.0.0.0:$PORT "app:create_app()"
-      http_port: 8080
-      instance_count: 1
-      instance_size_slug: basic-xxs
-      health_check:
-        http_path: /health
-      envs:
-        - key: FLASK_APP
-          value: app.py
-        - key: FLASK_ENV
-          value: production
-        - key: PORT
-          value: "8080"
-        - key: DATABASE_URL
-          scope: RUN_AND_BUILD_TIME
-          value: ${db.DATABASE_URL}
-        - key: REDIS_URL
-          value: redis://redis:6379
-        - key: SECRET_KEY
-          value: ${SECRET_KEY}
-          type: SECRET
-        - key: JWT_SECRET_KEY
-          value: ${JWT_SECRET_KEY}
-          type: SECRET
-        - key: MAIL_PASSWORD
-          value: ${MAIL_PASSWORD}
-          type: SECRET
-        - key: MAIL_SERVER
-          value: ${MAIL_SERVER}
-        - key: MAIL_PORT
-          value: ${MAIL_PORT}
-        - key: MAIL_USERNAME
-          value: ${MAIL_USERNAME}
-        - key: DO_API_TOKEN
-          value: ${DO_API_TOKEN}
-          type: SECRET
+# Static files (if needed for future enhancements)
+static_sites: []
 
-  workers:
-    - name: redis
-      image:
-        registry_type: DOCKER_HUB
-        repository: redis
-        tag: "7-alpine"
-      instance_count: 1
-      instance_size_slug: basic-xxs
+# Worker services (for background tasks)
+workers: []
 
-  alerts:
-    - rule: DEPLOYMENT_FAILED
-    - rule: DEPLOYMENT_LIVE
+# Job services (for one-time tasks)
+jobs:
+  - name: db-migrate
+    source_dir: /
+    github:
+      repo: RithishRamesh-dev/task-manager-app-autodev
+      branch: ${BRANCH}
+    
+    build_command: |
+      pip install --upgrade pip
+      pip install -r requirements.txt
+    
+    run_command: |
+      flask db upgrade
+    
+    instance_count: 1
+    instance_size_slug: basic-xxs
+    kind: PRE_DEPLOY
+    
+    envs:
+      - key: FLASK_APP
+        value: app_socketio.py
+      - key: DATABASE_URL
+        value: ${db.DATABASE_URL}
+      - key: SECRET_KEY
+        value: ${SECRET_KEY}
+        type: SECRET
+
+# Alerts configuration
+alerts:
+  - rule: DEPLOYMENT_FAILED
+    disabled: false
+  - rule: DEPLOYMENT_LIVE
+    disabled: false
+  - rule: CPU_UTILIZATION
+    value: 80
+    operator: GREATER_THAN
+    window: FIVE_MINUTES
+    disabled: false
+  - rule: MEM_UTILIZATION
+    value: 80
+    operator: GREATER_THAN
+    window: FIVE_MINUTES
+    disabled: false
