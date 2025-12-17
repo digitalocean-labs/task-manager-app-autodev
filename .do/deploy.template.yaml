@@ -1,5 +1,5 @@
 
-  name: task-manager-app-226
+  name: task-manager-app
 
   databases:
     - engine: PG
