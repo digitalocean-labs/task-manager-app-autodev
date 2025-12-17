@@ -80,10 +80,11 @@ spec:
       kind: PRE_DEPLOY
       environment_slug: python
       source_dir: /
-
       git:
         repo_clone_url: https://github.com/digitalocean-labs/task-manager-app-autodev.git
         branch: main
+      instance_count: 1
+      instance_size_slug: basic-xxs  
 
       build_command: |
         pip install --upgrade pip
