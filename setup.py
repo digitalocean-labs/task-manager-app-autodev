@@ -40,7 +40,7 @@ setup(
         'Flask-SocketIO==5.3.6',
         'psycopg2-binary==2.9.7',
         'python-dotenv==1.0.0',
-        'marshmallow==3.20.1',
+        'marshmallow==3.26.2',
         'bcrypt==4.0.1',
         'redis==5.0.0',
         'gunicorn==21.2.0',
