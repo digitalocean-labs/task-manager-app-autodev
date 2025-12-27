@@ -35,7 +35,7 @@ setup(
         'Flask-SQLAlchemy==3.0.5',
         'Flask-Migrate==4.0.5',
         'Flask-JWT-Extended==4.5.3',
-        'Flask-CORS==4.0.0',
+        'Flask-CORS==6.0.0',
         'Flask-Limiter==3.5.0',
         'Flask-SocketIO==5.3.6',
         'psycopg2-binary==2.9.7',
