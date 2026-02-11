@@ -43,7 +43,7 @@ setup(
         'marshmallow==3.20.1',
         'bcrypt==4.0.1',
         'redis==5.0.0',
-        'gunicorn==21.2.0',
+        'gunicorn==23.0.0',
     ],
     extras_require={
         'dev': [
