@@ -31,7 +31,7 @@ setup(
     packages=find_packages(),
     include_package_data=True,
     install_requires=[
-        'Flask==2.3.3',
+        'Flask==3.1.3',
         'Flask-SQLAlchemy==3.0.5',
         'Flask-Migrate==4.0.5',
         'Flask-JWT-Extended==4.5.3',
